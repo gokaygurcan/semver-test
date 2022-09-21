@@ -168,5 +168,6 @@ jobs:
         git add -A
         git commit -m "PHO-0: Bumping release ${{ steps.get-release-tag.outputs.id }}"
         echo "Committed to branch: $GITHUB_REF"
-        git tag ${{ steps.get-release-tag.outputs.id }}
         git push -u origin $TARGET_COMMITISH
+        git tag ${{ steps.get-release-tag.outputs.id }}
+        git push
