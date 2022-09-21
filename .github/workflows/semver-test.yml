@@ -1,0 +1,185 @@
+name: SemVer Test
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+  release:
+    types:
+      - created
+
+env:
+  GITHUB: ${{ toJson(github) }}
+  ADBLOCK: true
+  NODE_VERSION: '12'
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    outputs:
+      build-number: ${{ steps.variables.outputs.build-number }}
+      target-commitish: ${{ steps.variables.outputs.target-commitish }}
+    steps:
+    - id: setup-node
+      name: Setup Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - id: checkout
+      name: Checkout
+      uses: actions/checkout@v2
+
+    - id: sanity-check
+      name: Sanity check
+      env:
+        GITHUB_CONTEXT: ${{ toJson(github) }}
+        JOB_CONTEXT: ${{ toJson(job) }}
+        STEPS_CONTEXT: ${{ toJson(steps) }}
+        RUNNER_CONTEXT: ${{ toJson(runner) }}
+        STRATEGY_CONTEXT: ${{ toJson(strategy) }}
+        MATRIX_CONTEXT: ${{ toJson(matrix) }}
+      run: |
+        printenv
+        echo "$PATH"
+        echo "$GITHUB_CONTEXT"
+        echo "$JOB_CONTEXT"
+        echo "$STEPS_CONTEXT"
+        echo "$RUNNER_CONTEXT"
+        echo "$STRATEGY_CONTEXT"
+        echo "$MATRIX_CONTEXT"
+        which node
+        node --version
+        which npm
+        npm --version
+        which grunt
+        grunt --version
+        which make
+        make --version
+        which jq
+        jq --version
+        pwd
+        ls -lah .
+
+    - id: cache-dependencies
+      name: Cache dependencies
+      uses: actions/cache@v2
+      with:
+        path: |
+          **/node_modules
+          **/.cache
+        key: node-modules-${{ secrets.CACHE_VERSION }}-${{ hashFiles('package.json') }}
+
+    - id: install-dependencies
+      name: Install dependencies
+      if: |
+        (steps.cache-dependencies.outputs.cache-hit != 'true')
+      run: |
+        npm install
+
+    - id: variables
+      name: Generate Variables
+      run: |
+        echo ${{ github.event }}
+        if [[ "${{ github.event && github.event.inputs && github.event.inputs.target-environment-url != '' }}" == "true" ]]; then
+          echo '::set-output name=build-number::${{ github.run_number }}'
+          echo '::set-output name=target-commitish::${{ github.event.inputs.target-environment-url }}'
+        elif [[ "${{ github.event_name == 'release' }}" == "true" ]]; then
+          echo '::set-output name=build-number::${{ github.event.release.tag_name }}'
+          echo '::set-output name=target-commitish::${{ github.event.event.release.target_commitish }}'
+        elif [[ "${{ github.event_name == 'push' }}" == "true" ]]; then
+          echo '::set-output name=build-number::${{ github.run_number }}'
+          echo '::set-output name=target-commitish::master'
+        fi
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    env:
+      BUILD_NUMBER: ${{ needs.setup.outputs.build-number }}
+      TARGET_COMMITISH: ${{ needs.setup.outputs.target-commitish }}
+    if: |
+      (github.event_name == 'push' || github.event_name == 'release' || github.event_name == 'workflow_dispatch')
+    needs: [ setup ]
+    steps:
+    - id: setup-node
+      name: Setup Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - id: checkout
+      name: Checkout
+      uses: actions/checkout@v2
+
+    - id: cache-dependencies
+      name: Cache dependencies
+      uses: actions/cache@v2
+      with:
+        path: |
+          **/node_modules
+          **/.cache
+        key: node-modules-${{ secrets.CACHE_VERSION }}-${{ hashFiles('package.json') }}
+
+    - id: cache-build-suite-dependencies
+      name: Cache build-suite dependencies
+      uses: actions/cache@v2
+      with:
+        path: |
+          build-suite/**
+        key: build-suite-${{ secrets.CACHE_VERSION }}-${{ hashFiles('build-suite/package.json') }}
+
+    - id: install-build-suite-dependencies
+      name: Install build-suite dependencies
+      if: |
+        (steps.cache-build-suite-dependencies.outputs.cache-hit != 'true')
+      run: |
+        npm install --prefix build-suite
+
+    - id: get-release-tag
+      run: |
+        id=$(echo $BUILD_NUMBER | cut -b 2-)
+        echo "::set-output name=id::$id"
+
+    - id: version-info
+      name: Version info
+      run: |
+        echo "<meta name="version" content="${{ steps.get-release-tag.outputs.id }}" />" > version.isml
+
+    - id: update-package-json-version
+      name: Update version field in package.json
+      uses: jossef/action-set-json-field@v2
+      with:
+        file: package.json
+        field: version
+        value: ${{ steps.get-release-tag.outputs.id }}
+
+    - id: package-node-version
+      name: Read Node.js version from package.json
+      uses: culshaw/read-package-node-version-actions@v1
+
+    - id: print-version
+      name: Print version
+      run: echo "Version = ${{ steps.package-node-version.outputs.version }}"
+
+    - id: commit-files
+      name: Commit files
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git fetch
+        git add -A
+        git commit -m "PHO-0: Bumping release ${{ steps.get-release-tag.outputs.id }}"
+        echo "Committed to branch: $GITHUB_REF"
+        git tag ${{ steps.get-release-tag.outputs.id }}
+        git push -u origin $TARGET_COMMITISH
