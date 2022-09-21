@@ -131,22 +131,8 @@ jobs:
           **/.cache
         key: node-modules-${{ secrets.CACHE_VERSION }}-${{ hashFiles('package.json') }}
 
-    - id: cache-build-suite-dependencies
-      name: Cache build-suite dependencies
-      uses: actions/cache@v2
-      with:
-        path: |
-          build-suite/**
-        key: build-suite-${{ secrets.CACHE_VERSION }}-${{ hashFiles('build-suite/package.json') }}
-
-    - id: install-build-suite-dependencies
-      name: Install build-suite dependencies
-      if: |
-        (steps.cache-build-suite-dependencies.outputs.cache-hit != 'true')
-      run: |
-        npm install --prefix build-suite
-
     - id: get-release-tag
+      name: Get release tag
       run: |
         id=$(echo $BUILD_NUMBER | cut -b 2-)
         echo "::set-output name=id::$id"
@@ -178,6 +164,7 @@ jobs:
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
         git fetch
+        git checkout $TARGET_COMMITISH
         git add -A
         git commit -m "PHO-0: Bumping release ${{ steps.get-release-tag.outputs.id }}"
         echo "Committed to branch: $GITHUB_REF"
