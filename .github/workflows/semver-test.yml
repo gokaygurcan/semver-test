@@ -121,6 +121,8 @@ jobs:
     - id: checkout
       name: Checkout
       uses: actions/checkout@v2
+      with:
+        ref: ${{ steps.variables.outputs.target-commitish }}
 
     - id: cache-dependencies
       name: Cache dependencies
