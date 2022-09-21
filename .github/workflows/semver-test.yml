@@ -158,16 +158,8 @@ jobs:
       name: Print version
       run: echo "Version = ${{ steps.package-node-version.outputs.version }}"
 
-    - id: commit-files
-      name: Commit files
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git fetch
-        git checkout $TARGET_COMMITISH
-        git add -A
-        git commit -m "PHO-0: Bumping release ${{ steps.get-release-tag.outputs.id }}"
-        echo "Committed to branch: $GITHUB_REF"
-        git push -u origin $TARGET_COMMITISH
-        git tag ${{ steps.get-release-tag.outputs.id }}
-        git push
+    - id: add-and-commit-version
+      uses: EndBug/add-and-commit@v9
+      with:
+        message: "PHO-0: Bump version to ${{ steps.get-release-tag.outputs.id }}"
+        default_author: github_actions
